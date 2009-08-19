@@ -1,0 +1,303 @@
+\documentclass{article}
+\title{Architecture of xyz-Unit testing framework}
+\author{Arnold Noronha}
+\begin{document}
+
+\maketitle
+\begin{abstract}
+This document defines an architecture of two extensions (\emph{yUnit} and \emph{zUnit})to current
+unit testing frameworks.
+\end{abstract}
+
+\section{Introduction}
+
+While there are several hundreds of Unit testing frameworks, they
+suffer from many real drawbacks, that make them difficult to use. The
+first that this document tries to solve is that of separating the
+\emph{fixture}, i.e., the data, from the actual test scenario. This
+framework will be called \emph{yUnit}. 
+
+The second issue, is of ``unit
+testing'' within the natural environment of the component. For
+instance, in a single-threaded, event-driven application, a component
+that relies on network feedback, may not have actions that return
+independently. Thus we need to have an event loop running for
+performing the unit test. Some developers might wish to call this
+``integration testing'', but we'll not distinguish between the
+two. The \emph{zUnit} API we define below intends to simplify the
+process of writing unit tests in such environments, and may not be
+suitable for applications that are heavily thread dependent.
+
+This document attempts to define a programming interface that we
+would can be consistently replicated in different programming
+languages. An exact specification is provided only for C.
+
+
+\section{Definitions and the Testing Paradigm}
+
+We follow the following paradigm of unit testing: for each test,
+\begin{enumerate}
+\item Set up the ``state'' of the program or environment under which
+  the module has to be tested, and
+\item Do the test
+\end{enumerate}
+
+We want to make the process of setting up the ``state'' convenient and
+easy. For that purpose, we define the following:
+
+\begin{itemize}
+\item {\bf State.} The state of the program, or the environment under
+  which the software runs. The definition of state could be program
+  specific, and will depend on the intuition of the testers and
+  developers, but it is important to define the state early
+  on. For example, for a C program, the state could be defined with a
+  high level of granularity: as the exact memory dump. However, since
+  this is of less practical use, we will typically define the state as
+  the set of all data structs, and the pointers between them. 
+  
+  In a CGI web application, a state might be the combination of the
+  database contents, and the session variables (cookies).
+\item {\bf Fixture.} A state of a program is typically too complicated
+  to specify for each test. We define a fixture, as a pre-defined
+  state, data, or configuration settings before the application
+  runs. Again, this might vary for, say, web applications.
+
+  In database-driven web applications, there could be an easy
+  distinction between State and Fixture. The Fixture could be just the
+  database contents, while the state could be the database contents
+  along with the contents of the Session (the current user logged in,
+  etc.).
+
+  In C programs, the fixture could be the set of configuration files,
+  along with the data the program operates on. For example, in a feed
+  reader, the fixture could be the URLs of feeds, and all cached
+  data. However the user might perform actions once the program starts
+  that do not change the fixture, but will change the state of the
+  program (e.g., view a feed).
+
+\end{itemize}
+
+  Fixtures makes defining the state convenient. For example, we can
+  now change our testing paradigm to the following:
+
+\begin{enumerate}
+\item A tester (writing a specific test) chooses one of the fixtures to
+  base her test on. 
+\item She then builds up the state of the system from that fixture by
+  running commands/actions on the intermediate states,
+\item and finally she tests the action she's interested in.
+\end{enumerate}
+
+Most developers and testers using the xUnit model of testing actually
+use the above paradigm, although there's no clear distinction between
+step 1 and step 2.
+
+\section{yUnit}
+
+For the yUnit framework, we note that in the testing paradigm,
+building up the state of the system might still be hard. What if the
+tester wants to write the same test over different states of the
+system? This means that a tester needs to design her tests very
+well. In many case, this design can be redundantly similar.
+
+Step 2 and Step 3 can vary depending on the fixture chosen in Step
+1. If we could write Steps 2 and 3 independent of the fixture, then
+it's just a matter of running the same test over various fixtures to
+get a very high degree of testing on the component.
+
+The idea then, would be to not hardcode the fixture-specific constants
+into the test code (steps 2 and 3). One way xUnit does this, is to use
+data providers. A data provider would typically be part of the test
+code itself, that passes a variety of values to the test code.
+
+However, we'd like to be able to support the following paradigm:
+fixtures are hard to generate, and we'll want to keep this is as a
+more ``clerical'' work, or to leave it to the user-community in an
+open source project. A tester should write only Step 2 and Step 3,
+without knowledge of the fixture. (The tester may set constraints on
+the fixture.) Any fixture-specific values are not hardcoded. Once the
+test code is written, a tester may take the test case,
+run it on an existing fixture (or create a new fixture), provide
+values for all the test fixture-specific values, and verifies that the
+test produces the right answer (which can be specific to the fixture)
+for the test. At this point, the tester or user may choose to enter
+this fixture, test code combination into a database: i.e., the
+database consists of all the fixture-specific values the FP provided. 
+
+The combination of the test code (or simply, \emph{test}) and the
+fixture and the fixture variables constitutes a \emph{scenario}. A
+\emph{scenario provider} would specifically refer to a tester or even
+a user who combines the fixture and test, with the glue fixture variables.
+
+While the test can typically be part of the actual development
+code repository, the scenarios should be specified externally. E.g., a user
+might use a scenario that depends on his passwords, and so he wouldn't
+want to share this scenario. However, users may sync their databases
+of scenarios via push and pull mechanisms analogous to distributed
+version control systems such as Git. It is conceivable that the
+project may control a central database of scenarios, that all other
+testers and FPs push to. 
+
+The format of the database, is independent of the programming language
+the test or the program is written in.
+
+\subsection{Naming}
+
+Since each test, fixture, and scenario are synced from multiple users,
+each of them require a unique name. This document suggests the use of
+Java inverted domain name convention to keep them unique, however
+projects are allowed to use any naming they prefer.
+
+\subsection{Database specification}
+
+The database creates the following tables:
+
+\begin{itemize}
+\item \emph{List of test names.} This database may be linked to a
+specific version of the code, and so may not support all the tests
+that another database for the same code may support.
+\item \emph{List of fixtures}, a key-value pair, listing for each fixture name the
+contents of the fixture. It is hard to specify exactly how
+the fixture looks like, since different applications may use different
+notions as to how to store their data or configuration values. The
+test plan would include creating a \verb|test_serialize| and
+\verb|test_unserialize| to serialize the entire state of the fixture into a
+single string. (Careful here, keeping track of fixture versions,
+anyone?)
+\item \emph{A list of all scenarios}. For each scenario, we should be
+  able to store the name of the scenario, the fixture it uses, the
+  test it uses, and a table of $[key,value]$ string pairs indicating
+  each of the test variables.
+\end{itemize}
+
+In order to unify and simplify the above in implementation, we allow
+the database to be the form of a tree, with each node being a key
+string and the leaf node being a value for the key. Each leaf is
+specified by the names of the keys along the path. The root node will
+be an empty string and will be skipped in specifying the key
+value. The first level in the tree will contain exactly three keys:
+``tests'', ``fixtures'', and ``scenarios''.
+
+The document does not specify the implementation of such a structure.
+
+\pagebreak
+
+\section{Headers}
+\subsection{Database Headers}
+\begin{itemize}
+\item {\bf NAME}
+
+   yunit/db.h --- low level manipulation of the yUnit key database
+
+\item {\bf SYNOPSIS}
+
+   \verb|#include <yunit/db.h>|
+
+\item {\bf DESCRIPTION}
+
+   The \verb|<yunit/db.h>| header shall provide functions to manipulate and
+   access the scenario and test database.
+
+   The \verb|<yunit/db.h>| header shall declare the \verb|_YUnitDb|
+   struct and typedef it as follows
+
+\begin{verbatim}
+typedef struct _YUnitDb YUnitDb;
+\end{verbatim}
+
+   The \verb|<yunit/db.h>| header shall declare the \verb|_YUnitDbKey|
+   struct and typedef it as follows:
+\begin{verbatim}
+typedef struct _YUnitDbKey YUnitDbKey;
+\end{verbatim}
+
+   The following shall be defined as functions. If any function
+   returns a \verb|char*|, then that return value needs to be freed
+   using \verb|free|.
+\begin{verbatim}
+YUnitDb*    yunit_db_new (void);
+YUnitDb*    yunit_db_load (const char *filename);
+void        yunit_db_save (const YUnitDb *db,
+                           const char *filename);
+YUnitDbKey* yunit_db_get_root (YUnitDb *db);
+YUnitDbKey* yunit_db_key_create (YUnitDb *root,
+                                 const char *key0,
+                                 ...);
+void        yunit_db_key_free (YUnitDbKey *key);
+char*       yunit_db_get_value_k (YUnitDbKey *key);
+char*       yunit_db_get_value (const char* key0,
+                                ...);
+void        yunit_db_set_value_k (YUnitDbKey *key,
+                                  const char *value);
+void        yunit_db_set_value (const char* value,
+                                const char *key0,
+                                ...);
+\end{verbatim}
+
+\end{itemize}
+\pagebreak
+\subsection{Test Headers}
+
+\begin{itemize}
+\item {\bf NAME}
+
+yunit/test.h --- calls used during the execution of a test
+
+\item {\bf SYNOPSIS}
+
+\verb|#include <yunit/test.h>|
+
+\item {\bf DESCRIPTION}
+
+The \verb|<yunit/test.h>| header shall provide routines that are used
+during the execution of a Scenario. A \emph{key} in this Description
+will be a string that refers to a key within the scenario description,
+and should not be confused with the database key.
+
+The \verb|<yunit/test.h>| header shall provide the following function
+that should be called before any of the other functions in this
+description are called. This function may set up key-value pairs
+based on information from the environment variables.
+
+\begin{verbatim}
+void yunit_test_init (void);
+\end{verbatim}
+The \verb|<yunit/test.h>| header shall provide the following low level
+routines to manipulate the current run of a scenario.
+
+\begin{verbatim}
+void    yunit_test_set_key (const char *key, const char *value);
+char    *yunit_test_get_key_ (const char *key);
+\end{verbatim}
+
+The \verb|<yunit/test.h>| shall provide the following functions as the
+standard way for a test to access the scenario data. These functions
+may block for user input, however the means of interaction with the
+user is not specified by this document.
+
+\begin{verbatim}
+char *yunit_test_get_key     (const char *key,
+                              const char *description);
+int  yunit_test_get_key_int  (const char *key,
+                              const char *description);
+int  yunit_test_get_key_bool (const char *key,
+                              const char *description);
+\end{verbatim}
+
+The \verb|<yunit/test.h>| header shall provide the following interface
+for allowing the developer to specify his own mechanism for user input
+when required:
+
+\begin{verbatim}
+typedef char* YUnitTestUserInput (const char *key, const char
+*description);
+void   yunit_test_set_user_input (YUnitTestUserInput *func);
+\end{verbatim}
+
+
+\end{itemize}
+
+
+\end{document}
+
+
